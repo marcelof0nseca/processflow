@@ -1,0 +1,8 @@
+task listar /bin/ls -l
+task ordenar /usr/bin/sort
+task contar /usr/bin/wc -l
+
+task     espacos_multiplos      /bin/echo     teste
+comando_inventado
+task solta
+exit
