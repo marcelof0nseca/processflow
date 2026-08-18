@@ -1,0 +1,17 @@
+# binario e arquivos objeto gerados pelo make
+processflow
+*.o
+
+# log de evidencias: vai no .tar da entrega, nao no repositorio
+# (cresce a cada sessao e tem caracteres de controle do terminal)
+evidencias.log
+
+# saidas geradas pelos testes
+resultado.txt
+historico.txt
+*.tmp
+
+# arquivos de trabalho pessoal (nao fazem parte da entrega)
+PLANEJAMENTO.md
+ROTEIRO_DE_TESTES.md
+diario.md
