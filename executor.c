@@ -105,9 +105,10 @@ pid_t task_spawn(const Task *t, int fd_entrada, int fd_saida) {
 
         /* _exit e obrigatorio: sem ele o filho voltaria para o loop de
          * comandos do main e passariam a existir DOIS ProcessFlow lendo do
-         * mesmo teclado. E _exit() e nao exit(): o exit() executaria os
-         * handlers e daria flush no buffer herdado do pai, duplicando
-         * saida. O 127 e a convencao de shell para "comando nao encontrado". */
+         * mesmo teclado (comprovado em teste dirigido: ver relatorio).
+         * E _exit() e nao exit(): o exit() executaria os handlers e daria
+         * flush no buffer herdado do pai, duplicando saida. O 127 e a
+         * convencao de shell para "comando nao encontrado". */
         _exit(127);
     }
 
