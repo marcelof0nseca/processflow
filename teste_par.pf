@@ -1,0 +1,4 @@
+task lento /bin/sleep 3
+task rapido /bin/sleep 1
+run parallel lento rapido
+exit
