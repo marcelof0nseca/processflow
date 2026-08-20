@@ -119,7 +119,43 @@ static void cmd_run(int argc, char *argv[]) {
     } else if (strcmp(modo, "parallel") == 0) {
         exec_parallel(ts, n);
     } else {
-        fprintf(stderr, "erro: 'run pipe' ainda nao implementado (Dia 3)\n");
+        exec_pipe(ts, n);
+    }
+}
+
+/* input  <tarefa> <arquivo>  -> a tarefa le a entrada do arquivo
+ * output <tarefa> <arquivo>  -> a tarefa grava a saida no arquivo (truncando)
+ * append <tarefa> <arquivo>  -> a tarefa grava a saida no fim do arquivo
+ *
+ * Os tres tem a mesma forma, entao compartilham a validacao. O nome do
+ * comando esta em argv[0], e e ele que decide o que configurar. */
+static void cmd_redirecionar(int argc, char *argv[]) {
+    const char *comando = argv[0];
+
+    if (argc != 3) {
+        fprintf(stderr, "erro: uso correto: %s <tarefa> <arquivo>\n", comando);
+        return;
+    }
+
+    Task *t = task_find(argv[1]);
+    if (t == NULL) {
+        fprintf(stderr, "erro: tarefa '%s' nao foi cadastrada\n", argv[1]);
+        return;
+    }
+
+    int entrada = (strcmp(comando, "input") == 0);
+    int resultado;
+
+    if (entrada) {
+        resultado = task_set_input(t, argv[2]);
+    } else {
+        /* append == 1 so no comando append; output trunca o arquivo. */
+        resultado = task_set_output(t, argv[2], strcmp(comando, "append") == 0);
+    }
+
+    if (resultado == 0) {
+        printf("tarefa '%s': %s redirecionada para '%s'\n",
+               t->nome, entrada ? "entrada" : "saida", argv[2]);
     }
 }
 
@@ -144,7 +180,14 @@ void dispatch_command(int argc, char *argv[]) {
         return;
     }
 
-    /* Os comandos input, output, append, workdir, start, jobs e wait
-     * entram nos proximos dias. Ate la caem aqui como desconhecidos. */
+    if (strcmp(argv[0], "input")  == 0 ||
+        strcmp(argv[0], "output") == 0 ||
+        strcmp(argv[0], "append") == 0) {
+        cmd_redirecionar(argc, argv);
+        return;
+    }
+
+    /* Os comandos workdir, start, jobs e wait entram no Dia 4.
+     * Ate la caem aqui como desconhecidos. */
     fprintf(stderr, "erro: comando desconhecido '%s'\n", argv[0]);
 }
