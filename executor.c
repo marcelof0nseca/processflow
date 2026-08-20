@@ -372,6 +372,11 @@ int exec_pipe(Task *ts[], int n) {
         fechar_se_aberto(fd_leitura_anterior);
 
         if (i < n - 1) {
+            /* Fechar esta ponta e o que permite a cadeia terminar. Sem ela,
+             * o kernel continua contando o ProcessFlow como um escritor vivo
+             * do pipe, o proximo processo nunca recebe EOF e a execucao
+             * congela sem mensagem de erro (comprovado em teste dirigido:
+             * ver relatorio). */
             close(fd[1]);                    /* quem escreve e o filho, nao o pai */
             fd_leitura_anterior = fd[0];     /* guarda a leitura para o proximo */
         } else {
