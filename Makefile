@@ -80,19 +80,39 @@ test: all
 	@time ./$(BIN) teste_par.pf
 	@echo ""
 	@echo "=========================================================="
-	@echo " 4. ERRO FATAL - numero incorreto de argumentos"
+	@echo " 4. PIPE - ls -l | sort | wc -l, tres processos simultaneos"
+	@echo "=========================================================="
+	@echo "\$$ ./$(BIN) teste_pipe.pf"
+	@./$(BIN) teste_pipe.pf
+	@echo "conferencia com o shell do sistema:"
+	@echo "\$$ ls -l | wc -l"
+	@ls -l | wc -l
+	@echo ""
+	@echo "=========================================================="
+	@echo " 5. REDIRECIONAMENTO - input, output e append"
+	@echo "=========================================================="
+	@rm -f resultado.txt historico.txt
+	@echo "\$$ ./$(BIN) teste_redir.pf"
+	@./$(BIN) teste_redir.pf
+	@echo "--- resultado.txt (saida do sort, deve estar ordenado) ---"
+	@cat resultado.txt
+	@echo "--- historico.txt (append do wc -l) ---"
+	@cat historico.txt
+	@echo ""
+	@echo "=========================================================="
+	@echo " 6. ERRO FATAL - numero incorreto de argumentos"
 	@echo "=========================================================="
 	@echo "\$$ ./$(BIN) a b c"
 	@./$(BIN) a b c; echo "codigo de saida: $$?   (esperado: diferente de 0)"
 	@echo ""
 	@echo "=========================================================="
-	@echo " 5. ERRO FATAL - arquivo de workflow inexistente"
+	@echo " 7. ERRO FATAL - arquivo de workflow inexistente"
 	@echo "=========================================================="
 	@echo "\$$ ./$(BIN) nao_existe.pf"
 	@./$(BIN) nao_existe.pf; echo "codigo de saida: $$?   (esperado: diferente de 0)"
 	@echo ""
 	@echo "=========================================================="
-	@echo " 6. PROCESSOS ZUMBIS - esperado: 0"
+	@echo " 8. PROCESSOS ZUMBIS - esperado: 0"
 	@echo "=========================================================="
 	@echo "processos <defunct> encontrados: $$(ps -ef | grep -c '[d]efunct')"
 	@echo ""

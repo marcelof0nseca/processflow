@@ -79,7 +79,19 @@ Passar mais de um argumento é erro e encerra o programa com código diferente d
 | `run <nome>` | Executa a tarefa e espera ela terminar |
 | `run sequential <t1> <t2> ...` | Executa em fila: cada tarefa só começa quando a anterior termina |
 | `run parallel <t1> <t2> ...` | Cria todos os processos antes de esperar por qualquer um |
+| `run pipe <t1> <t2> ...` | Liga a saída de cada tarefa à entrada da seguinte; todos os processos rodam ao mesmo tempo |
+| `input <tarefa> <arquivo>` | A tarefa passa a ler a entrada do arquivo |
+| `output <tarefa> <arquivo>` | A tarefa passa a gravar a saída no arquivo, sobrescrevendo |
+| `append <tarefa> <arquivo>` | Igual ao `output`, mas escrevendo no fim do arquivo |
 | `exit` | Encerra o ProcessFlow |
+
+Os arquivos de `input`, `output` e `append` são verificados no momento em que o comando é
+digitado: se não puderem ser abertos, o erro é reportado e a configuração não é gravada.
+Recadastrar uma tarefa com `task` zera os redirecionamentos dela.
+
+Numa cadeia de `run pipe`, o `input` da **primeira** tarefa e o `output`/`append` da
+**última** são respeitados; nas tarefas do meio o pipe tem prioridade, já que as duas
+pontas delas estão ocupadas.
 
 Pressionar **Ctrl+D** no modo interativo tem o mesmo efeito de `exit`.
 
@@ -120,6 +132,8 @@ processflow> exit
 | Tarefa não cadastrada | `run fantasma` |
 | Programa não existe | `task x /bin/nao_existe` seguido de `run x` |
 | Programa sem permissão de execução | `task y /etc/hostname` seguido de `run y` |
+| Arquivo de entrada não pode ser aberto | `input ordenar /caminho/que/nao/existe.txt` |
+| Arquivo de saída não pode ser aberto | `output ordenar /proc/impossivel.txt` |
 | Comando desconhecido | `comando_inventado` |
 | `task` sem programa informado | `task solta` |
 
