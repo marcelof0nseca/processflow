@@ -1,6 +1,10 @@
 # binario e arquivos objeto gerados pelo make
 processflow
+build/
 *.o
+
+# pacote de entrega (gerado por "make entrega")
+maf.tar
 
 # log de evidencias: vai no .tar da entrega, nao no repositorio
 # (cresce a cada sessao e tem caracteres de controle do terminal)
