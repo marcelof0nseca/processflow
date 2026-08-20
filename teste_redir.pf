@@ -1,0 +1,14 @@
+task ordenar /usr/bin/sort
+input ordenar nomes.txt
+output ordenar resultado.txt
+run ordenar
+
+task unicos /usr/bin/uniq
+input unicos resultado.txt
+run unicos
+
+task contar /usr/bin/wc -l
+input contar nomes.txt
+append contar historico.txt
+run contar
+exit

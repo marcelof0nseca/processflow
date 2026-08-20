@@ -1,0 +1,5 @@
+task listar /bin/ls -l
+task ordenar /usr/bin/sort
+task contar /usr/bin/wc -l
+run pipe listar ordenar contar
+exit
