@@ -9,8 +9,21 @@
  * processa o comando e este arquivo; o main so consulta via should_exit(). */
 static int sair = 0;
 
+/* Ver a explicacao em parser.h. Comeca em 0 (nao interativo) para que
+ * qualquer caminho que esqueca de definir o modo produza a saida limpa,
+ * que e a mais segura. */
+static int interativo = 0;
+
 int should_exit(void) {
     return sair;
+}
+
+void set_modo_interativo(int valor) {
+    interativo = valor;
+}
+
+int modo_interativo_ativo(void) {
+    return interativo;
 }
 
 int tokenize(char *linha, char *tokens[]) {
@@ -40,7 +53,7 @@ static void cmd_task(int argc, char *argv[]) {
 
     /* &argv[2] e o endereco da terceira palavra: dali em diante e o programa
      * e seus argumentos, que e exatamente o que a tarefa precisa guardar. */
-    if (task_register(argv[1], &argv[2], argc - 2) == 0) {
+    if (task_register(argv[1], &argv[2], argc - 2) == 0 && modo_interativo_ativo()) {
         printf("tarefa '%s' cadastrada\n", argv[1]);
     }
 }
@@ -154,7 +167,7 @@ static void cmd_redirecionar(int argc, char *argv[]) {
         resultado = task_set_output(t, argv[2], strcmp(comando, "append") == 0);
     }
 
-    if (resultado == 0) {
+    if (resultado == 0 && modo_interativo_ativo()) {
         printf("tarefa '%s': %s redirecionada para '%s'\n",
                t->nome, entrada ? "entrada" : "saida", argv[2]);
     }
@@ -168,7 +181,7 @@ static void cmd_workdir(int argc, char *argv[]) {
         return;
     }
 
-    if (exec_set_workdir(argv[1]) == 0) {
+    if (exec_set_workdir(argv[1]) == 0 && modo_interativo_ativo()) {
         printf("diretorio de trabalho das tarefas: '%s'\n", argv[1]);
     }
 }

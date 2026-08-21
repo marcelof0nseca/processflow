@@ -20,4 +20,18 @@ void dispatch_command(int argc, char *argv[]);
  * usa isso para saber que deve parar. */
 int should_exit(void);
 
+/* Modo de operacao do ProcessFlow.
+ *
+ * 1 = sessao interativa de verdade, com alguem digitando no terminal. O
+ *     prompt e as mensagens de confirmacao ("tarefa X cadastrada") fazem
+ *     sentido e ajudam o usuario.
+ * 0 = entrada vinda de um arquivo .pf ou de stdin redirecionado. A saida
+ *     deve conter apenas o eco das linhas (no modo workflow) e o que os
+ *     programas executados produzirem — nada gerado pelo ProcessFlow.
+ *
+ * E o mesmo criterio que o bash usa: com a entrada redirecionada ele nao
+ * imprime prompt. Definido uma vez pelo main, antes do laco de leitura. */
+void set_modo_interativo(int interativo);
+int  modo_interativo_ativo(void);
+
 #endif

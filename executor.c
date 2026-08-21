@@ -7,6 +7,7 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include "executor.h"
+#include "parser.h"   /* apenas para consultar modo_interativo_ativo() */
 
 /* ------------------------------------------------------------------ */
 /* Estado do modulo                                                    */
@@ -537,7 +538,9 @@ int job_wait(int id) {
     }
 
     if (!j->ativo) {
-        printf("job [%d] ja havia terminado com codigo %d\n", j->id, j->codigo);
+        if (modo_interativo_ativo()) {
+            printf("job [%d] ja havia terminado com codigo %d\n", j->id, j->codigo);
+        }
         return j->codigo;
     }
 
@@ -559,8 +562,12 @@ int job_wait(int id) {
     j->ativo  = 0;
     j->codigo = codigo_de_status(status);
 
-    printf("job [%d] (pid %d, tarefa '%s') terminou com codigo %d\n",
-           j->id, (int)j->pid, j->nome, j->codigo);
+    /* Confirmacao apenas para quem esta digitando. Em execucao automatizada
+     * o wait e silencioso, como no shell. */
+    if (modo_interativo_ativo()) {
+        printf("job [%d] (pid %d, tarefa '%s') terminou com codigo %d\n",
+               j->id, (int)j->pid, j->nome, j->codigo);
+    }
 
     return j->codigo;
 }
@@ -573,8 +580,10 @@ void jobs_collect_all(void) {
             continue;
         }
 
-        printf("aguardando job [%d] (pid %d, tarefa '%s')...\n",
-               jobs[i].id, (int)jobs[i].pid, jobs[i].nome);
+        if (modo_interativo_ativo()) {
+            printf("aguardando job [%d] (pid %d, tarefa '%s')...\n",
+                   jobs[i].id, (int)jobs[i].pid, jobs[i].nome);
+        }
 
         int status;
         if (waitpid(jobs[i].pid, &status, 0) < 0) {

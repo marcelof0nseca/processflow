@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include "parser.h"
 #include "tasks.h"
 #include "executor.h"
@@ -19,14 +20,28 @@ static void processar_linha(char *linha) {
 static void modo_interativo(void) {
     char linha[TAM_LINHA];
 
+    /* isatty() responde se o stdin e mesmo um terminal. Com a entrada
+     * redirecionada (./processflow < comandos.txt) nao ha ninguem para ler
+     * o prompt, e imprimi-lo so sujaria a saida. E o mesmo criterio que o
+     * bash usa. */
+    set_modo_interativo(isatty(STDIN_FILENO));
+
     while (!should_exit()) {
-        printf("processflow> ");
-        fflush(stdout);  /* o prompt nao tem \n, entao precisa forcar a exibicao */
+        if (modo_interativo_ativo()) {
+            printf("processflow> ");
+            fflush(stdout);  /* o prompt nao tem \n, entao precisa forcar a exibicao */
+        }
 
         if (fgets(linha, sizeof(linha), stdin) == NULL) {
             /* fgets devolve NULL no fim da entrada (Ctrl+D no terminal).
-             * Isso e saida normal, nao erro: sai limpo, como se fosse "exit". */
-            printf("\n");
+             * Isso e saida normal, nao erro: sai limpo, como se fosse "exit".
+             *
+             * A quebra de linha serve so para tirar o cursor de cima do
+             * prompt; sem prompt na tela, ela seria uma linha em branco
+             * indevida no fim da saida. */
+            if (modo_interativo_ativo()) {
+                printf("\n");
+            }
             break;
         }
 
@@ -38,6 +53,10 @@ static void modo_interativo(void) {
  * O enunciado exige duas coisas aqui: nao mostrar o prompt, e imprimir cada
  * linha ANTES de processa-la. */
 static void modo_workflow(const char *caminho) {
+    /* No modo workflow nao existe usuario digitando: a saida deve conter
+     * apenas o eco das linhas do arquivo e o que os programas produzirem. */
+    set_modo_interativo(0);
+
     FILE *arquivo = fopen(caminho, "r");
 
     if (arquivo == NULL) {
