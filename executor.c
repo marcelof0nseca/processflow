@@ -4,21 +4,55 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include "executor.h"
+
+/* ------------------------------------------------------------------ */
+/* Estado do modulo                                                    */
+/* ------------------------------------------------------------------ */
+
+/* Diretorio configurado pelo comando workdir. Vazio significa "nenhum":
+ * os filhos herdam o diretorio do proprio ProcessFlow. */
+static char diretorio_trabalho[MAX_CAMINHO] = "";
+
+/* Um job em background, criado pelo comando start. */
+typedef struct {
+    int   id;                 /* jobId sequencial, comeca em 1 */
+    pid_t pid;
+    char  nome[MAX_NOME];
+    int   ativo;              /* 1 = ainda rodando, 0 = ja coletado */
+    int   codigo;             /* codigo de saida, valido quando ativo == 0 */
+} Job;
+
+static Job jobs[MAX_JOBS];
+static int total_jobs = 0;
+static int proximo_id  = 1;
 
 /* ------------------------------------------------------------------ */
 /* Funcoes de apoio                                                    */
 /* ------------------------------------------------------------------ */
 
-/* Interpreta o status devolvido pelo waitpid.
+/* Extrai o codigo de saida do inteiro devolvido pelo waitpid.
  *
  * O status NAO e o codigo de saida: e um inteiro com varios campos
  * empacotados. As macros WIFEXITED/WEXITSTATUS/WIFSIGNALED existem
- * justamente para desempacotar isso sem depender do layout dos bits.
- *
- * Terminacao normal com codigo 0 nao imprime nada, para nao poluir a
- * saida do programa que a tarefa executou. */
+ * para desempacotar isso sem depender do layout dos bits. */
+static int codigo_de_status(int status) {
+    if (WIFEXITED(status)) {
+        return WEXITSTATUS(status);
+    }
+    if (WIFSIGNALED(status)) {
+        /* Terminou por sinal (Ctrl+C, kill, segfault...) e nao por return.
+         * A convencao de shell e somar 128 ao numero do sinal. */
+        return 128 + WTERMSIG(status);
+    }
+    return -1;
+}
+
+/* Interpreta o status e avisa quando a terminacao foi anormal.
+ * Saida normal com codigo 0 nao imprime nada, para nao poluir a saida do
+ * programa que a tarefa executou. */
 static int reportar_status(const char *nome, pid_t pid, int status) {
     if (WIFEXITED(status)) {
         int codigo = WEXITSTATUS(status);
@@ -30,7 +64,6 @@ static int reportar_status(const char *nome, pid_t pid, int status) {
     }
 
     if (WIFSIGNALED(status)) {
-        /* Terminou por sinal (Ctrl+C, kill, segfault...) e nao por return. */
         fprintf(stderr, "aviso: tarefa '%s' (pid %d) terminou por sinal %d\n",
                 nome, (int)pid, WTERMSIG(status));
         return 128 + WTERMSIG(status);
@@ -71,8 +104,7 @@ static void aplicar_redirecionamentos(int fd_entrada, int fd_saida) {
  * cancelada sem sequer criar o processo filho.
  *
  * Devolve -1 (com mensagem ja impressa) se algum arquivo falhar; nesse caso
- * fecha o que ja tinha aberto, para nao vazar descritor.
- * Em *fd_in e *fd_out volta -1 quando nao ha redirecionamento. */
+ * fecha o que ja tinha aberto, para nao vazar descritor. */
 static int abrir_redirecionamentos(const Task *t, int *fd_in, int *fd_out) {
     *fd_in  = -1;
     *fd_out = -1;
@@ -113,6 +145,37 @@ static void fechar_se_aberto(int fd) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Diretorio de trabalho                                               */
+/* ------------------------------------------------------------------ */
+
+int exec_set_workdir(const char *diretorio) {
+    struct stat info;
+
+    if (strlen(diretorio) >= MAX_CAMINHO) {
+        fprintf(stderr, "erro: caminho muito longo (maximo %d caracteres)\n",
+                MAX_CAMINHO - 1);
+        return -1;
+    }
+
+    /* stat falha se o caminho nao existe; se existir, e preciso ainda
+     * conferir que e um diretorio e nao um arquivo comum. */
+    if (stat(diretorio, &info) != 0) {
+        fprintf(stderr, "erro: diretorio '%s' nao encontrado: %s\n",
+                diretorio, strerror(errno));
+        return -1;
+    }
+
+    if (!S_ISDIR(info.st_mode)) {
+        fprintf(stderr, "erro: '%s' nao e um diretorio\n", diretorio);
+        return -1;
+    }
+
+    strncpy(diretorio_trabalho, diretorio, MAX_CAMINHO - 1);
+    diretorio_trabalho[MAX_CAMINHO - 1] = '\0';
+    return 0;
+}
+
+/* ------------------------------------------------------------------ */
 /* Criacao de processo: fork + exec                                    */
 /* ------------------------------------------------------------------ */
 
@@ -122,9 +185,7 @@ pid_t task_spawn(const Task *t, int fd_entrada, int fd_saida,
      *
      * Motivo: o fork copia a memoria do processo, inclusive o buffer de
      * saida que ainda nao foi gravado. Se sobrar texto pendente no buffer,
-     * pai e filho vao gravar esse mesmo texto, e ele aparece duplicado.
-     * No terminal isso quase nunca acontece (a saida e esvaziada a cada
-     * '\n'), mas aparece quando a saida vai para um arquivo. */
+     * pai e filho vao gravar esse mesmo texto, e ele aparece duplicado. */
     fflush(NULL);
 
     pid_t pid = fork();
@@ -141,38 +202,43 @@ pid_t task_spawn(const Task *t, int fd_entrada, int fd_saida,
         aplicar_redirecionamentos(fd_entrada, fd_saida);
 
         /* Fecha as pontas de pipe que pertencem a outros elos da cadeia.
-         * Isso vem DEPOIS do dup2: os descritores que viraram stdin/stdout
-         * ja foram copiados, entao fechar os originais aqui e seguro. */
+         * Vem DEPOIS do dup2: os descritores que viraram stdin/stdout ja
+         * foram copiados, entao fechar os originais aqui e seguro. */
         for (int i = 0; i < n_fechar; i++) {
             if (fechar_no_filho[i] >= 0) {
                 close(fechar_no_filho[i]);
             }
         }
 
-        /* execvp substitui a imagem do processo: daqui em diante o filho E
-         * o outro programa. Se der certo, NADA abaixo desta linha executa.
+        /* O chdir acontece AQUI, no filho, e nao no ProcessFlow.
          *
-         * O "p" de execvp significa que ele procura o programa no PATH
-         * quando o nome nao tem barra. O "v" significa que recebe o argv
-         * como vetor terminado em NULL, que e como a Task ja guarda. */
+         * Vem depois da abertura dos redirecionamentos (que foi feita no
+         * pai, com os caminhos resolvidos a partir do diretorio do
+         * ProcessFlow) e antes do exec, para que o programa da tarefa
+         * enxergue o diretorio configurado. */
+        if (diretorio_trabalho[0] != '\0') {
+            if (chdir(diretorio_trabalho) != 0) {
+                fprintf(stderr, "erro: nao foi possivel entrar em '%s' (tarefa '%s'): %s\n",
+                        diretorio_trabalho, t->nome, strerror(errno));
+                _exit(126);
+            }
+        }
+
+        /* execvp substitui a imagem do processo: daqui em diante o filho E
+         * o outro programa. Se der certo, NADA abaixo desta linha executa. */
         execvp(t->argv[0], t->argv);
 
-        /* Se a execucao chegou aqui, o exec FALHOU: programa inexistente,
-         * sem permissao de execucao, etc. */
+        /* Se a execucao chegou aqui, o exec FALHOU. */
         fprintf(stderr, "erro: nao foi possivel executar '%s' (tarefa '%s'): %s\n",
                 t->argv[0], t->nome, strerror(errno));
 
         /* _exit e obrigatorio: sem ele o filho voltaria para o loop de
          * comandos do main e passariam a existir DOIS ProcessFlow lendo do
-         * mesmo teclado (comprovado em teste dirigido: ver relatorio).
-         * E _exit() e nao exit(): o exit() executaria os handlers e daria
-         * flush no buffer herdado do pai, duplicando saida. O 127 e a
-         * convencao de shell para "comando nao encontrado". */
+         * mesmo teclado (comprovado em teste dirigido: ver relatorio). */
         _exit(127);
     }
 
-    /* Caso 3: pid > 0 -> este codigo esta rodando NO PAI, e pid e o
-     * identificador do filho recem-criado. */
+    /* Caso 3: pid > 0 -> este codigo esta rodando NO PAI. */
     return pid;
 }
 
@@ -184,8 +250,8 @@ int task_collect(pid_t pid, const char *nome) {
     int status;
 
     /* waitpid com o PID exato. Usar waitpid(-1, ...) aqui pegaria
-     * "qualquer filho", o que quebraria os jobs em background do Dia 4:
-     * o wait de um comando poderia coletar o filho de outro. */
+     * "qualquer filho", e o wait de um comando poderia coletar por engano
+     * um job em background criado por outro. */
     if (waitpid(pid, &status, 0) < 0) {
         fprintf(stderr, "erro: waitpid do pid %d falhou: %s\n",
                 (int)pid, strerror(errno));
@@ -208,8 +274,7 @@ int exec_single(const Task *t) {
 
     pid_t pid = task_spawn(t, fd_in, fd_out, NULL, 0);
 
-    /* O pai nao usa esses descritores: o filho ja tem a copia dele. Manter
-     * abertos aqui vazaria descritor a cada execucao. */
+    /* O pai nao usa esses descritores: o filho ja tem a copia dele. */
     fechar_se_aberto(fd_in);
     fechar_se_aberto(fd_out);
 
@@ -237,9 +302,8 @@ int exec_parallel(Task *ts[], int n) {
 
     /* PRIMEIRO laco: cria TODOS os filhos, sem esperar por nenhum.
      * O enunciado exige que todas as tarefas sejam iniciadas antes que o
-     * ProcessFlow espere pelo termino do grupo — e a separacao em dois
-     * lacos e exatamente o que garante isso. Juntar os dois lacos em um so
-     * transformaria este metodo em sequencial. */
+     * ProcessFlow espere pelo termino do grupo. Juntar os dois lacos em um
+     * so transformaria este metodo em sequencial. */
     for (int i = 0; i < n; i++) {
         int fd_in, fd_out;
 
@@ -259,8 +323,7 @@ int exec_parallel(Task *ts[], int n) {
      * A coleta acontece na ordem de criacao, e nao na ordem de termino, e
      * isso esta correto: se o segundo filho terminar antes do primeiro, o
      * waitpid do primeiro apenas espera mais um pouco, e o do segundo
-     * retorna imediatamente. Nenhum filho deixa de ser coletado, entao nao
-     * sobra processo zumbi. */
+     * retorna imediatamente. Nenhum filho deixa de ser coletado. */
     for (int i = 0; i < n; i++) {
         if (pids[i] > 0) {
             task_collect(pids[i], ts[i]->nome);
@@ -269,10 +332,6 @@ int exec_parallel(Task *ts[], int n) {
 
     return 0;
 }
-
-/* ------------------------------------------------------------------ */
-/* Pipe                                                                */
-/* ------------------------------------------------------------------ */
 
 int exec_pipe(Task *ts[], int n) {
     pid_t pids[MAX_TAREFAS];
@@ -309,10 +368,9 @@ int exec_pipe(Task *ts[], int n) {
         }
     }
 
-    /* fd_leitura_anterior guarda a ponta de LEITURA do pipe criado na
-     * volta anterior do laco: e por ela que a tarefa atual recebe a saida
-     * da tarefa anterior. Comeca em -1 porque a primeira tarefa nao tem
-     * antecessora. */
+    /* fd_leitura_anterior guarda a ponta de LEITURA do pipe criado na volta
+     * anterior do laco: e por ela que a tarefa atual recebe a saida da
+     * tarefa anterior. Comeca em -1 porque a primeira nao tem antecessora. */
     int fd_leitura_anterior = -1;
     int criados = 0;
 
@@ -321,9 +379,6 @@ int exec_pipe(Task *ts[], int n) {
         int entrada;
         int saida;
 
-        /* Cria um pipe entre a tarefa atual e a proxima. A ultima tarefa
-         * da cadeia nao precisa de pipe: a saida dela vai para o arquivo
-         * (se houver) ou para o stdout do ProcessFlow. */
         if (i < n - 1) {
             if (pipe(fd) < 0) {
                 fprintf(stderr, "erro: nao foi possivel criar o pipe: %s\n", strerror(errno));
@@ -331,26 +386,11 @@ int exec_pipe(Task *ts[], int n) {
             }
         }
 
-        /* Entrada: do pipe anterior; se for a primeira tarefa, do arquivo
-         * de input, se houver; senao herda o stdin do ProcessFlow (-1). */
-        if (i == 0) {
-            entrada = fd_entrada_arquivo;
-        } else {
-            entrada = fd_leitura_anterior;
-        }
+        entrada = (i == 0) ? fd_entrada_arquivo : fd_leitura_anterior;
+        saida   = (i < n - 1) ? fd[1] : fd_saida_arquivo;
 
-        /* Saida: para o pipe novo; se for a ultima tarefa, para o arquivo
-         * de output, se houver; senao herda o stdout do ProcessFlow (-1). */
-        if (i < n - 1) {
-            saida = fd[1];
-        } else {
-            saida = fd_saida_arquivo;
-        }
-
-        /* O filho precisa fechar a ponta de LEITURA do pipe que ele acabou
-         * de herdar: ela pertence ao proximo elo da cadeia, nao a ele.
-         * Deixar aberta faria o proximo processo nunca ver EOF caso este
-         * aqui morresse antes. */
+        /* O filho precisa fechar a ponta de LEITURA do pipe que acabou de
+         * herdar: ela pertence ao proximo elo da cadeia, nao a ele. */
         int fechar[1];
         int n_fechar = 0;
         if (i < n - 1) {
@@ -363,20 +403,14 @@ int exec_pipe(Task *ts[], int n) {
         /* ---- Fechamento no PAI: a parte que decide se trava ou nao ----
          *
          * O pai criou os pipes, mas nao le nem escreve neles. Toda ponta
-         * que ele deixar aberta continua contando como "escritor vivo" ou
-         * "leitor vivo" para o kernel, e o processo do outro lado espera
-         * para sempre por um EOF que nao chega.
-         *
-         * Por isso: assim que o filho e criado (e ja tem sua propria copia
-         * dos descritores), o pai fecha os dele. */
+         * que ele deixar aberta continua contando como "escritor vivo" para
+         * o kernel, e o processo do outro lado espera para sempre por um
+         * EOF que nao chega. Pior: o descritor esquecido e HERDADO pelos
+         * filhos criados depois, e o problema se multiplica pela cadeia
+         * (comprovado em teste dirigido: ver relatorio). */
         fechar_se_aberto(fd_leitura_anterior);
 
         if (i < n - 1) {
-            /* Fechar esta ponta e o que permite a cadeia terminar. Sem ela,
-             * o kernel continua contando o ProcessFlow como um escritor vivo
-             * do pipe, o proximo processo nunca recebe EOF e a execucao
-             * congela sem mensagem de erro (comprovado em teste dirigido:
-             * ver relatorio). */
             close(fd[1]);                    /* quem escreve e o filho, nao o pai */
             fd_leitura_anterior = fd[0];     /* guarda a leitura para o proximo */
         } else {
@@ -384,15 +418,13 @@ int exec_pipe(Task *ts[], int n) {
         }
     }
 
-    /* Fecha o que sobrou: a ultima ponta de leitura (se o laco terminou por
-     * erro) e os arquivos de redirecionamento das extremidades. */
     fechar_se_aberto(fd_leitura_anterior);
     fechar_se_aberto(fd_entrada_arquivo);
     fechar_se_aberto(fd_saida_arquivo);
 
     /* So agora o pai espera. Todos os processos da cadeia foram criados e
-     * estao rodando ao mesmo tempo — e assim que um pipe funciona: os
-     * dados fluem enquanto os processos executam, sem arquivo temporario. */
+     * rodam ao mesmo tempo — e assim que um pipe funciona: os dados fluem
+     * enquanto os processos executam, sem arquivo temporario. */
     for (int i = 0; i < criados; i++) {
         if (pids[i] > 0) {
             task_collect(pids[i], ts[i]->nome);
@@ -400,4 +432,153 @@ int exec_pipe(Task *ts[], int n) {
     }
 
     return 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* Jobs em background                                                  */
+/* ------------------------------------------------------------------ */
+
+/* Procura um job pelo id. Retorna NULL se nao existir. */
+static Job *job_find(int id) {
+    for (int i = 0; i < total_jobs; i++) {
+        if (jobs[i].id == id) {
+            return &jobs[i];
+        }
+    }
+    return NULL;
+}
+
+/* Verifica, SEM BLOQUEAR, quais jobs ja terminaram.
+ *
+ * A flag WNOHANG e o que diferencia esta funcao do wait: se o filho ainda
+ * esta rodando, o waitpid retorna 0 imediatamente em vez de travar. E por
+ * isso que o comando jobs consegue mostrar o estado atual e devolver o
+ * prompt na hora. */
+static void jobs_atualizar(void) {
+    for (int i = 0; i < total_jobs; i++) {
+        if (!jobs[i].ativo) {
+            continue;
+        }
+
+        int   status;
+        pid_t r = waitpid(jobs[i].pid, &status, WNOHANG);
+
+        if (r == jobs[i].pid) {
+            jobs[i].ativo  = 0;
+            jobs[i].codigo = codigo_de_status(status);
+        }
+        /* r == 0 significa "ainda rodando": nao ha nada a fazer. */
+    }
+}
+
+int job_start(const Task *t) {
+    int fd_in, fd_out;
+
+    if (total_jobs >= MAX_JOBS) {
+        fprintf(stderr, "erro: limite de %d jobs atingido\n", MAX_JOBS);
+        return -1;
+    }
+
+    if (abrir_redirecionamentos(t, &fd_in, &fd_out) != 0) {
+        return -1;
+    }
+
+    pid_t pid = task_spawn(t, fd_in, fd_out, NULL, 0);
+
+    fechar_se_aberto(fd_in);
+    fechar_se_aberto(fd_out);
+
+    if (pid < 0) {
+        return -1;
+    }
+
+    /* A diferenca entre start e run e exatamente esta: aqui NAO ha
+     * task_collect. O pai registra o PID e volta imediatamente ao prompt;
+     * a coleta fica para o comando wait (ou para o encerramento). */
+    Job *j = &jobs[total_jobs];
+    j->id     = proximo_id++;
+    j->pid    = pid;
+    j->ativo  = 1;
+    j->codigo = 0;
+    strncpy(j->nome, t->nome, MAX_NOME - 1);
+    j->nome[MAX_NOME - 1] = '\0';
+
+    total_jobs++;
+
+    printf("[%d] %d\n", j->id, (int)pid);
+    return j->id;
+}
+
+void jobs_list(void) {
+    jobs_atualizar();
+
+    if (total_jobs == 0) {
+        printf("nenhum job iniciado\n");
+        return;
+    }
+
+    for (int i = 0; i < total_jobs; i++) {
+        if (jobs[i].ativo) {
+            printf("[%d] %d  rodando     %s\n",
+                   jobs[i].id, (int)jobs[i].pid, jobs[i].nome);
+        } else {
+            printf("[%d] %d  concluido   %s (codigo %d)\n",
+                   jobs[i].id, (int)jobs[i].pid, jobs[i].nome, jobs[i].codigo);
+        }
+    }
+}
+
+int job_wait(int id) {
+    Job *j = job_find(id);
+
+    if (j == NULL) {
+        fprintf(stderr, "erro: job %d nao existe\n", id);
+        return -1;
+    }
+
+    if (!j->ativo) {
+        printf("job [%d] ja havia terminado com codigo %d\n", j->id, j->codigo);
+        return j->codigo;
+    }
+
+    /* waitpid no PID DAQUELE job, nunca -1: com -1 o ProcessFlow coletaria
+     * qualquer filho que terminasse primeiro, e o "wait 2" poderia retornar
+     * quando o job 1 acabasse. */
+    int status;
+    if (waitpid(j->pid, &status, 0) < 0) {
+        fprintf(stderr, "erro: waitpid do job %d (pid %d) falhou: %s\n",
+                j->id, (int)j->pid, strerror(errno));
+        j->ativo = 0;
+        return -1;
+    }
+
+    j->ativo  = 0;
+    j->codigo = codigo_de_status(status);
+
+    printf("job [%d] (pid %d, tarefa '%s') terminou com codigo %d\n",
+           j->id, (int)j->pid, j->nome, j->codigo);
+
+    return j->codigo;
+}
+
+void jobs_collect_all(void) {
+    jobs_atualizar();
+
+    for (int i = 0; i < total_jobs; i++) {
+        if (!jobs[i].ativo) {
+            continue;
+        }
+
+        printf("aguardando job [%d] (pid %d, tarefa '%s')...\n",
+               jobs[i].id, (int)jobs[i].pid, jobs[i].nome);
+
+        int status;
+        if (waitpid(jobs[i].pid, &status, 0) < 0) {
+            fprintf(stderr, "erro: waitpid do job %d falhou: %s\n",
+                    jobs[i].id, strerror(errno));
+        } else {
+            jobs[i].codigo = codigo_de_status(status);
+        }
+        jobs[i].ativo = 0;
+    }
 }
