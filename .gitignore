@@ -13,6 +13,7 @@ evidencias.log
 # saidas geradas pelos testes
 resultado.txt
 historico.txt
+saida.txt
 *.tmp
 
 # arquivos de trabalho pessoal (nao fazem parte da entrega)
