@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "parser.h"
 #include "tasks.h"
@@ -159,6 +160,56 @@ static void cmd_redirecionar(int argc, char *argv[]) {
     }
 }
 
+/* workdir <diretorio> — altera o diretorio usado pelas tarefas executadas
+ * a partir daqui. Nao muda o diretorio do proprio ProcessFlow. */
+static void cmd_workdir(int argc, char *argv[]) {
+    if (argc != 2) {
+        fprintf(stderr, "erro: uso correto: workdir <diretorio>\n");
+        return;
+    }
+
+    if (exec_set_workdir(argv[1]) == 0) {
+        printf("diretorio de trabalho das tarefas: '%s'\n", argv[1]);
+    }
+}
+
+/* start <tarefa> — executa em background e devolve o prompt na hora. */
+static void cmd_start(int argc, char *argv[]) {
+    if (argc != 2) {
+        fprintf(stderr, "erro: uso correto: start <tarefa>\n");
+        return;
+    }
+
+    Task *t = task_find(argv[1]);
+    if (t == NULL) {
+        fprintf(stderr, "erro: tarefa '%s' nao foi cadastrada\n", argv[1]);
+        return;
+    }
+
+    job_start(t);
+}
+
+/* wait <jobId> — espera o termino de um job especifico. */
+static void cmd_wait(int argc, char *argv[]) {
+    if (argc != 2) {
+        fprintf(stderr, "erro: uso correto: wait <jobId>\n");
+        return;
+    }
+
+    /* strtol em vez de atoi: o atoi devolve 0 tanto para "0" quanto para
+     * "abc", sem como distinguir. Com o strtol da para conferir, pelo
+     * ponteiro de fim, se a string inteira era mesmo um numero. */
+    char *fim;
+    long  id = strtol(argv[1], &fim, 10);
+
+    if (*fim != '\0' || fim == argv[1] || id <= 0) {
+        fprintf(stderr, "erro: jobId invalido: '%s'\n", argv[1]);
+        return;
+    }
+
+    job_wait((int)id);
+}
+
 void dispatch_command(int argc, char *argv[]) {
     /* Linha vazia ou so com espacos: nao e erro, simplesmente nao faz nada. */
     if (argc == 0) {
@@ -187,7 +238,29 @@ void dispatch_command(int argc, char *argv[]) {
         return;
     }
 
-    /* Os comandos workdir, start, jobs e wait entram no Dia 4.
-     * Ate la caem aqui como desconhecidos. */
+    if (strcmp(argv[0], "workdir") == 0) {
+        cmd_workdir(argc, argv);
+        return;
+    }
+
+    if (strcmp(argv[0], "start") == 0) {
+        cmd_start(argc, argv);
+        return;
+    }
+
+    if (strcmp(argv[0], "jobs") == 0) {
+        if (argc != 1) {
+            fprintf(stderr, "erro: uso correto: jobs\n");
+            return;
+        }
+        jobs_list();
+        return;
+    }
+
+    if (strcmp(argv[0], "wait") == 0) {
+        cmd_wait(argc, argv);
+        return;
+    }
+
     fprintf(stderr, "erro: comando desconhecido '%s'\n", argv[0]);
 }
