@@ -3,6 +3,7 @@
 #include <string.h>
 #include "parser.h"
 #include "tasks.h"
+#include "executor.h"
 
 #define TAM_LINHA 1024
 
@@ -81,6 +82,12 @@ int main(int argc, char *argv[]) {
     } else {
         modo_interativo();
     }
+
+    /* Antes de encerrar, espera os jobs que ainda estiverem em background.
+     * O enunciado diz que o ProcessFlow e responsavel por coletar o termino
+     * dos processos filhos que criar — sair sem isso deixaria processos
+     * orfaos, adotados pelo init, e o status deles nunca seria lido. */
+    jobs_collect_all();
 
     return EXIT_SUCCESS;
 }
