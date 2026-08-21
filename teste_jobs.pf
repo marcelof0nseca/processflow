@@ -1,0 +1,8 @@
+task longa /bin/sleep 5
+task curta /bin/sleep 1
+start longa
+start curta
+jobs
+wait 1
+jobs
+exit
