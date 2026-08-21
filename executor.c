@@ -541,9 +541,13 @@ int job_wait(int id) {
         return j->codigo;
     }
 
-    /* waitpid no PID DAQUELE job, nunca -1: com -1 o ProcessFlow coletaria
-     * qualquer filho que terminasse primeiro, e o "wait 2" poderia retornar
-     * quando o job 1 acabasse. */
+    /* waitpid no PID DAQUELE job, nunca -1.
+     *
+     * Com -1 o ProcessFlow coletaria qualquer filho que terminasse primeiro:
+     * o "wait 1" retornaria quando o job 2 acabasse, creditaria o resultado
+     * ao job errado, e o job realmente esperado ficaria sem coleta — virando
+     * um processo orfao ao encerrar. Comprovado em teste dirigido: ver
+     * relatorio. */
     int status;
     if (waitpid(j->pid, &status, 0) < 0) {
         fprintf(stderr, "erro: waitpid do job %d (pid %d) falhou: %s\n",
