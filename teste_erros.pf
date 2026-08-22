@@ -1,0 +1,32 @@
+task listar /bin/ls
+
+comando_inventado
+task solta
+run
+run sequential
+run pipe listar
+
+run fantasma
+task quebrada /bin/programa_que_nao_existe
+run quebrada
+task semperm /etc/hostname
+run semperm
+
+task ordenar /usr/bin/sort
+input ordenar /caminho/que/nao/existe.txt
+output ordenar /proc/impossivel.txt
+input ordenar
+append
+
+wait 99
+wait abc
+wait 0
+workdir /pasta/que/nao/existe
+workdir /etc/hostname
+workdir
+
+task     espacos_multiplos      /bin/echo     ainda    funciona
+run espacos_multiplos
+
+run listar
+exit

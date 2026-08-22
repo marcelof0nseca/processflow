@@ -1,0 +1,5 @@
+task listar /bin/ls
+run listar
+task contar /usr/bin/wc -l
+input contar nomes.txt
+run contar
