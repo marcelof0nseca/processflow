@@ -14,6 +14,9 @@ evidencias.log
 resultado.txt
 historico.txt
 saida.txt
+saida1.txt
+saida2.txt
+saida3.txt
 *.tmp
 
 # arquivos de trabalho pessoal (nao fazem parte da entrega)
