@@ -8,37 +8,26 @@
 
 #define TAM_LINHA 1024
 
-/* Quebra a linha em palavras e manda executar. Separado em funcao porque os
- * dois modos (interativo e workflow) fazem exatamente a mesma coisa aqui. */
 static void processar_linha(char *linha) {
     char *tokens[MAX_TOKENS];
     int n = tokenize(linha, tokens);
     dispatch_command(n, tokens);
 }
 
-/* Modo interativo: mostra o prompt e le do teclado ate o "exit" ou ate EOF. */
 static void modo_interativo(void) {
     char linha[TAM_LINHA];
 
-    /* isatty() responde se o stdin e mesmo um terminal. Com a entrada
-     * redirecionada (./processflow < comandos.txt) nao ha ninguem para ler
-     * o prompt, e imprimi-lo so sujaria a saida. E o mesmo criterio que o
-     * bash usa. */
+
     set_modo_interativo(isatty(STDIN_FILENO));
 
     while (!should_exit()) {
         if (modo_interativo_ativo()) {
             printf("processflow> ");
-            fflush(stdout);  /* o prompt nao tem \n, entao precisa forcar a exibicao */
+            fflush(stdout);
         }
 
         if (fgets(linha, sizeof(linha), stdin) == NULL) {
-            /* fgets devolve NULL no fim da entrada (Ctrl+D no terminal).
-             * Isso e saida normal, nao erro: sai limpo, como se fosse "exit".
-             *
-             * A quebra de linha serve so para tirar o cursor de cima do
-             * prompt; sem prompt na tela, ela seria uma linha em branco
-             * indevida no fim da saida. */
+
             if (modo_interativo_ativo()) {
                 printf("\n");
             }
@@ -49,18 +38,14 @@ static void modo_interativo(void) {
     }
 }
 
-/* Modo workflow: le os comandos de um arquivo .pf.
- * O enunciado exige duas coisas aqui: nao mostrar o prompt, e imprimir cada
- * linha ANTES de processa-la. */
 static void modo_workflow(const char *caminho) {
-    /* No modo workflow nao existe usuario digitando: a saida deve conter
-     * apenas o eco das linhas do arquivo e o que os programas produzirem. */
+
     set_modo_interativo(0);
 
     FILE *arquivo = fopen(caminho, "r");
 
     if (arquivo == NULL) {
-        /* Erro fatal do enunciado: arquivo de workflow nao pode ser aberto. */
+
         fprintf(stderr, "processflow: nao foi possivel abrir o arquivo de workflow '%s'\n",
                 caminho);
         exit(EXIT_FAILURE);
@@ -69,15 +54,14 @@ static void modo_workflow(const char *caminho) {
     char linha[TAM_LINHA];
 
     while (!should_exit() && fgets(linha, sizeof(linha), arquivo) != NULL) {
-        /* Eco da linha lida. O fgets mantem o \n do arquivo, mas a ultima
-         * linha pode nao ter, entao completa quando faltar. */
+
         printf("%s", linha);
         size_t tam = strlen(linha);
         if (tam == 0 || linha[tam - 1] != '\n') {
             printf("\n");
         }
 
-        /* Cuidado: o tokenize modifica a linha, por isso o eco vem antes. */
+
         processar_linha(linha);
     }
 
@@ -85,9 +69,7 @@ static void modo_workflow(const char *caminho) {
 }
 
 int main(int argc, char *argv[]) {
-    /* Uso: ./processflow [workflowFile]
-     * Sem argumento -> modo interativo. Com um argumento -> modo workflow.
-     * Mais de um argumento e erro fatal segundo o enunciado. */
+
     if (argc > 2) {
         fprintf(stderr, "processflow: numero incorreto de argumentos\n");
         fprintf(stderr, "uso: %s [workflowFile]\n", argv[0]);
@@ -102,10 +84,7 @@ int main(int argc, char *argv[]) {
         modo_interativo();
     }
 
-    /* Antes de encerrar, espera os jobs que ainda estiverem em background.
-     * O enunciado diz que o ProcessFlow e responsavel por coletar o termino
-     * dos processos filhos que criar — sair sem isso deixaria processos
-     * orfaos, adotados pelo init, e o status deles nunca seria lido. */
+
     jobs_collect_all();
 
     return EXIT_SUCCESS;

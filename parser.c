@@ -5,13 +5,8 @@
 #include "tasks.h"
 #include "executor.h"
 
-/* Sinalizador do comando "exit". Fica aqui (e nao no main.c) porque quem
- * processa o comando e este arquivo; o main so consulta via should_exit(). */
 static int sair = 0;
 
-/* Ver a explicacao em parser.h. Comeca em 0 (nao interativo) para que
- * qualquer caminho que esqueca de definir o modo produza a saida limpa,
- * que e a mais segura. */
 static int interativo = 0;
 
 int should_exit(void) {
@@ -29,9 +24,7 @@ int modo_interativo_ativo(void) {
 int tokenize(char *linha, char *tokens[]) {
     int n = 0;
 
-    /* O strtok trata sequencias de separadores como UM separador so, entao
-     * "task     listar    /bin/ls" ja funciona sem nenhum tratamento extra.
-     * Incluir \r na lista cobre arquivos .pf salvos no Windows (CRLF). */
+
     char *tok = strtok(linha, " \t\r\n");
 
     while (tok != NULL && n < MAX_TOKENS - 1) {
@@ -43,28 +36,18 @@ int tokenize(char *linha, char *tokens[]) {
     return n;
 }
 
-/* task <nome> <programa> [argumentos...]
- * Precisa de pelo menos 3 palavras: "task", o nome e o programa. */
 static void cmd_task(int argc, char *argv[]) {
     if (argc < 3) {
         fprintf(stderr, "erro: uso correto: task <nome> <programa> [argumentos...]\n");
         return;
     }
 
-    /* &argv[2] e o endereco da terceira palavra: dali em diante e o programa
-     * e seus argumentos, que e exatamente o que a tarefa precisa guardar. */
+
     if (task_register(argv[1], &argv[2], argc - 2) == 0 && modo_interativo_ativo()) {
         printf("tarefa '%s' cadastrada\n", argv[1]);
     }
 }
 
-/* Converte uma lista de NOMES de tarefa em ponteiros para as Tasks.
- * Se qualquer nome nao existir, imprime o erro e devolve -1: o comando run
- * inteiro e cancelado, mas o ProcessFlow continua lendo comandos.
- *
- * Cancelar o grupo todo (em vez de pular a tarefa faltante) e uma decisao
- * consciente: numa cadeia de pipe, executar so parte das tarefas produziria
- * um resultado silenciosamente errado. */
 static int resolver_tarefas(char *nomes[], int n, Task *saida[]) {
     for (int i = 0; i < n; i++) {
         Task *t = task_find(nomes[i]);
@@ -77,10 +60,6 @@ static int resolver_tarefas(char *nomes[], int n, Task *saida[]) {
     return 0;
 }
 
-/* run <nome>
- * run sequential <t1> <t2> ...
- * run parallel   <t1> <t2> ...
- * run pipe       <t1> <t2> ...   (Dia 3) */
 static void cmd_run(int argc, char *argv[]) {
     if (argc < 2) {
         fprintf(stderr, "erro: uso correto: run <nome> | "
@@ -93,7 +72,7 @@ static void cmd_run(int argc, char *argv[]) {
                    strcmp(modo, "parallel")   == 0 ||
                    strcmp(modo, "pipe")       == 0;
 
-    /* Caso simples: "run <nome>" */
+
     if (!em_grupo) {
         if (argc > 2) {
             fprintf(stderr, "erro: 'run <nome>' aceita uma unica tarefa; "
@@ -111,7 +90,7 @@ static void cmd_run(int argc, char *argv[]) {
         return;
     }
 
-    /* Caso em grupo: as tarefas comecam em argv[2] */
+
     int n = argc - 2;
 
     if (n < 1) {
@@ -125,7 +104,7 @@ static void cmd_run(int argc, char *argv[]) {
 
     Task *ts[MAX_TAREFAS];
     if (resolver_tarefas(&argv[2], n, ts) != 0) {
-        return;  /* alguma tarefa nao existe: erro ja foi impresso */
+        return;
     }
 
     if (strcmp(modo, "sequential") == 0) {
@@ -137,12 +116,6 @@ static void cmd_run(int argc, char *argv[]) {
     }
 }
 
-/* input  <tarefa> <arquivo>  -> a tarefa le a entrada do arquivo
- * output <tarefa> <arquivo>  -> a tarefa grava a saida no arquivo (truncando)
- * append <tarefa> <arquivo>  -> a tarefa grava a saida no fim do arquivo
- *
- * Os tres tem a mesma forma, entao compartilham a validacao. O nome do
- * comando esta em argv[0], e e ele que decide o que configurar. */
 static void cmd_redirecionar(int argc, char *argv[]) {
     const char *comando = argv[0];
 
@@ -163,7 +136,7 @@ static void cmd_redirecionar(int argc, char *argv[]) {
     if (entrada) {
         resultado = task_set_input(t, argv[2]);
     } else {
-        /* append == 1 so no comando append; output trunca o arquivo. */
+
         resultado = task_set_output(t, argv[2], strcmp(comando, "append") == 0);
     }
 
@@ -173,8 +146,6 @@ static void cmd_redirecionar(int argc, char *argv[]) {
     }
 }
 
-/* workdir <diretorio> — altera o diretorio usado pelas tarefas executadas
- * a partir daqui. Nao muda o diretorio do proprio ProcessFlow. */
 static void cmd_workdir(int argc, char *argv[]) {
     if (argc != 2) {
         fprintf(stderr, "erro: uso correto: workdir <diretorio>\n");
@@ -186,7 +157,6 @@ static void cmd_workdir(int argc, char *argv[]) {
     }
 }
 
-/* start <tarefa> — executa em background e devolve o prompt na hora. */
 static void cmd_start(int argc, char *argv[]) {
     if (argc != 2) {
         fprintf(stderr, "erro: uso correto: start <tarefa>\n");
@@ -202,16 +172,13 @@ static void cmd_start(int argc, char *argv[]) {
     job_start(t);
 }
 
-/* wait <jobId> — espera o termino de um job especifico. */
 static void cmd_wait(int argc, char *argv[]) {
     if (argc != 2) {
         fprintf(stderr, "erro: uso correto: wait <jobId>\n");
         return;
     }
 
-    /* strtol em vez de atoi: o atoi devolve 0 tanto para "0" quanto para
-     * "abc", sem como distinguir. Com o strtol da para conferir, pelo
-     * ponteiro de fim, se a string inteira era mesmo um numero. */
+
     char *fim;
     long  id = strtol(argv[1], &fim, 10);
 
@@ -224,7 +191,7 @@ static void cmd_wait(int argc, char *argv[]) {
 }
 
 void dispatch_command(int argc, char *argv[]) {
-    /* Linha vazia ou so com espacos: nao e erro, simplesmente nao faz nada. */
+
     if (argc == 0) {
         return;
     }
