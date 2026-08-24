@@ -17,6 +17,9 @@ saida.txt
 saida1.txt
 saida2.txt
 saida3.txt
+s1.txt
+s2.txt
+s3.txt
 *.tmp
 
 # arquivos de trabalho pessoal (nao fazem parte da entrega)

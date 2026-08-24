@@ -47,7 +47,8 @@ $(OBJDIR):
 clean:
 	rm -rf $(OBJDIR) $(BIN)
 	rm -f *.o
-	rm -f resultado.txt historico.txt saida.txt saida1.txt saida2.txt saida3.txt
+	rm -f resultado.txt historico.txt saida.txt
+	rm -f saida1.txt saida2.txt saida3.txt s1.txt s2.txt s3.txt
 
 # ------------------------------------------------------------
 #  Bateria de testes
