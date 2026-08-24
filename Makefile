@@ -128,7 +128,7 @@ test: all
 	@echo " 10. PROCESSOS ZUMBIS - nenhum deve ter o ProcessFlow como pai"
 	@echo "=========================================================="
 	@echo "\$$ ps -ef | grep '[d]efunct'"
-	@ps -ef | grep '[d]efunct' || echo "nenhum processo <defunct> no sistema"
+	@ps -ef | grep '[d]efunct' || echo "nenhum processo zumbi encontrado no sistema"
 	@echo ""
 	@echo "Obs.: o ps lista o sistema inteiro. Zumbis de outros programas"
 	@echo "podem aparecer; confira a coluna PPID para identificar o pai."
